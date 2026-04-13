@@ -12,17 +12,15 @@ def get_rooms():
 rooms = get_rooms()
 
 # --- LIVE DATABASE CONNECTION ---
-# This connects to the spreadsheet URL in your secrets.toml
 conn = st.connection("gsheets", type=GSheetsConnection)
-SHEET_URL = "https://docs.google.com/spreadsheets/d/1j0JQbMA-tu4eKmUqpdV49P1l1qs_U-S679vW3YR_ypQ/edit?gid=0#gid=0"
+# REPLACE THIS WITH YOUR ACTUAL GOOGLE SHEET URL!
+SHEET_URL = "https://docs.google.com/spreadsheets/d/1j0JQbMA-tu4eKmUqpdV49P1l1qs_U-S679vW3YR_ypQ/edit?gid=0#gid=0" 
 
 def get_saved_lists():
     try:
-        # Read the Google Sheet
         df = conn.read(spreadsheet=SHEET_URL, worksheet="Sheet1", usecols=[0, 1])
-        df = df.dropna(subset=['ListName']) # Remove empty rows
+        df = df.dropna(subset=['ListName']) 
         
-        # Convert it back to a dictionary for our app
         db_lists = {}
         for index, row in df.iterrows():
             list_name = row['ListName']
@@ -30,7 +28,6 @@ def get_saved_lists():
             db_lists[list_name] = options
         return db_lists, df
     except Exception as e:
-        # Fallback if sheet is completely blank
         return {}, pd.DataFrame(columns=['ListName', 'OptionsString'])
 
 saved_lists, db_dataframe = get_saved_lists()
@@ -110,25 +107,22 @@ if st.session_state.room_code is None:
         if st.button("Create Room"):
             if host_name and selected_options:
                 
-                # --- LIVE DATABASE SAVING LOGIC ---
                 if decision_type == "Paste Custom List" and save_list and list_name:
                     if list_name not in saved_lists:
                         options_string = ", ".join(selected_options)
                         new_row = pd.DataFrame([{'ListName': list_name, 'OptionsString': options_string}])
                         updated_df = pd.concat([db_dataframe, new_row], ignore_index=True)
-                        
-                        # Send to Google Sheets
                         conn.update(spreadsheet=SHEET_URL, worksheet="Sheet1", data=updated_df)
-                        st.cache_data.clear() # Force app to pull fresh data next time
+                        st.cache_data.clear() 
 
-                # Create the room
                 new_code = generate_code()
                 rooms[new_code] = {
                     'users': [host_name],
                     'votes': {host_name: {}},
                     'status': 'voting',
                     'options': selected_options,
-                    'host': host_name
+                    'host': host_name,
+                    'wheel_winner': None # Track the wheel spin!
                 }
                 st.session_state.room_code = new_code
                 st.session_state.username = host_name
@@ -158,9 +152,13 @@ else:
                     user_votes[opt] = st.radio(f"**{opt}**", ["Yes", "Neutral", "No"], horizontal=True)
                 
                 if st.form_submit_button("Submit Votes"):
-                    room['votes'][user] = user_votes
-                    st.session_state.has_voted = True
-                    st.rerun()
+                    # FEATURE 1: Prevent voting all exactly the same
+                    if len(room['options']) > 1 and len(set(user_votes.values())) == 1:
+                        st.error("🚫 You must have an opinion! You cannot vote exactly the same for every single option.")
+                    else:
+                        room['votes'][user] = user_votes
+                        st.session_state.has_voted = True
+                        st.rerun()
         else:
             st.success("✅ Your votes are locked in! Waiting for others...")
             colA, colB = st.columns(2)
@@ -194,20 +192,41 @@ else:
         
         if len(unanimous) == 1:
             st.success(f"### 🎉 Unanimous Winner: {unanimous[0]}!")
+            
         elif len(unanimous) > 1:
             st.warning(f"### 🤝 Multiple Unanimous Choices: {', '.join(unanimous)}")
-            winner = random.choice(unanimous)
-            st.success(f"### 🎡 The Wheel Chose: {winner}!")
+            
+            # FEATURE 3: Interactive Wheel Spin
+            if room['wheel_winner']:
+                st.success(f"### 🎡 The Wheel Chose: {room['wheel_winner']}!")
+            else:
+                if user == room['host']:
+                    if st.button("🎡 Spin the Wheel!"):
+                        room['wheel_winner'] = random.choice(unanimous)
+                        st.rerun()
+                else:
+                    st.info("Waiting for the Host to spin the wheel...")
+                    if st.button("🔄 Check Wheel Status"):
+                        st.rerun()
         else:
             st.error("### 🤷 No Unanimous Winner. Best Compromises:")
             sorted_opts = sorted(yes_counts.items(), key=lambda x: x[1], reverse=True)
+            
+            has_compromises = False
             for opt, count in sorted_opts:
                 if count > 0:
                     st.write(f"**{opt}**: {count} 'Yes' votes")
+                    has_compromises = True
+            
+            # FEATURE 2: Handle no 'Yes' votes gracefully
+            if not has_compromises:
+                st.warning("Actually... there are no compromises. Nobody voted 'Yes' for anything! 😭")
                     
+        st.divider()
         if user == room['host']:
             if st.button("Back to Voting / Restart"):
                 room['status'] = 'voting'
+                room['wheel_winner'] = None # Reset the wheel
                 for p in room['votes']:
                     room['votes'][p] = {}
                 st.rerun()
