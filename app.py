@@ -14,11 +14,12 @@ rooms = get_rooms()
 # --- LIVE DATABASE CONNECTION ---
 # This connects to the spreadsheet URL in your secrets.toml
 conn = st.connection("gsheets", type=GSheetsConnection)
+SHEET_URL = "https://docs.google.com/spreadsheets/d/1j0JQbMA-tu4eKmUqpdV49P1l1qs_U-S679vW3YR_ypQ/edit?gid=0#gid=0"
 
 def get_saved_lists():
     try:
         # Read the Google Sheet
-        df = conn.read(worksheet="Sheet1", usecols=[0, 1])
+        df = conn.read(spreadsheet=SHEET_URL, worksheet="Sheet1", usecols=[0, 1])
         df = df.dropna(subset=['ListName']) # Remove empty rows
         
         # Convert it back to a dictionary for our app
@@ -117,7 +118,7 @@ if st.session_state.room_code is None:
                         updated_df = pd.concat([db_dataframe, new_row], ignore_index=True)
                         
                         # Send to Google Sheets
-                        conn.update(worksheet="Sheet1", data=updated_df)
+                        conn.update(spreadsheet=SHEET_URL, worksheet="Sheet1", data=updated_df)
                         st.cache_data.clear() # Force app to pull fresh data next time
 
                 # Create the room
